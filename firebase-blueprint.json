@@ -1,0 +1,46 @@
+{
+  "entities": {
+    "ShortageReport": {
+      "title": "ShortageReport",
+      "description": "A report of a shortage for a specific item.",
+      "type": "object",
+      "properties": {
+        "itemId": {
+          "type": "string",
+          "description": "CSV Item Code"
+        },
+        "itemName": {
+          "type": "string",
+          "description": "Item description"
+        },
+        "reportedQuantity": {
+          "type": "number",
+          "description": "Quantity reported as missing"
+        },
+        "reportedAt": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "userId": {
+          "type": "string"
+        },
+        "status": {
+          "type": "string",
+          "enum": ["pending", "resolved"]
+        },
+        "notes": {
+          "type": "string"
+        }
+      },
+      "required": ["itemId", "itemName", "reportedQuantity", "reportedAt", "userId", "status"]
+    }
+  },
+  "firestore": {
+    "/shortages/{shortageId}": {
+      "schema": {
+        "$ref": "#/entities/ShortageReport"
+      },
+      "description": "Detailed shortage reports based on CSV items."
+    }
+  }
+}
