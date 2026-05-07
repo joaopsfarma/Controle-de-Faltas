@@ -30,9 +30,26 @@
         },
         "notes": {
           "type": "string"
+        },
+        "actionTaken": {
+          "type": "string"
         }
       },
       "required": ["itemId", "itemName", "reportedQuantity", "reportedAt", "userId", "status"]
+    },
+    "CatalogItem": {
+      "title": "CatalogItem",
+      "type": "object",
+      "properties": {
+        "itemId": { "type": "string" },
+        "itemName": { "type": "string" },
+        "status": { "type": "string" },
+        "isMissing": { "type": "boolean" },
+        "quantityTotal": { "type": "number" },
+        "quantityPending": { "type": "number" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["itemId", "itemName", "status", "isMissing", "quantityTotal", "quantityPending", "updatedAt"]
     }
   },
   "firestore": {
@@ -41,6 +58,12 @@
         "$ref": "#/entities/ShortageReport"
       },
       "description": "Detailed shortage reports based on CSV items."
+    },
+    "/catalog/{itemId}": {
+      "schema": {
+        "$ref": "#/entities/CatalogItem"
+      },
+      "description": "Catalog of items loaded from CSV."
     }
   }
 }

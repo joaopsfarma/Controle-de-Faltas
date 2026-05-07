@@ -16,6 +16,7 @@ export interface ShortageReport {
   userId: string;
   status: 'pending' | 'resolved';
   notes?: string;
+  actionTaken?: string;
 }
 
 export enum OperationType {

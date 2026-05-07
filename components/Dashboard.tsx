@@ -1,8 +1,9 @@
-import { useState, useEffect, useMemo } from 'react';
+import { useState, useEffect, useMemo, useRef } from 'react';
 import Papa from 'papaparse';
+import * as XLSX from 'xlsx';
 import { db, auth } from '@/src/lib/firebase';
 import { handleFirestoreError } from '@/src/lib/firestore-error';
-import { collection, query, onSnapshot, doc, setDoc, updateDoc, Timestamp, where, serverTimestamp } from 'firebase/firestore';
+import { collection, query, onSnapshot, doc, setDoc, updateDoc, where, serverTimestamp, writeBatch } from 'firebase/firestore';
 import { CsvItem, ShortageReport, OperationType } from '@/src/types';
 import { Button } from '@/components/ui/button';
 import { Card, CardHeader, CardTitle, CardContent } from '@/components/ui/card';
@@ -11,12 +12,12 @@ import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger, DialogFooter } from '@/components/ui/dialog';
-import { Search, Plus, CheckCircle, FileText, BarChart2, TrendingUp } from 'lucide-react';
+import { Search, Plus, CheckCircle, FileText, BarChart2, TrendingUp, Upload, Download, Target, Activity } from 'lucide-react';
 import { toast } from 'sonner';
 import { format, subDays, startOfDay, isSameDay } from 'date-fns';
-import { ResponsiveContainer, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend } from 'recharts';
+import { ResponsiveContainer, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, PieChart, Pie, Cell } from 'recharts';
 
-export default function Dashboard() {
+export default function Dashboard({ user }: { user: any }) {
   const [csvItems, setCsvItems] = useState<CsvItem[]>([]);
   const [shortages, setShortages] = useState<ShortageReport[]>([]);
   const [searchTerm, setSearchTerm] = useState('');
@@ -24,47 +25,56 @@ export default function Dashboard() {
   const [selectedItem, setSelectedItem] = useState<CsvItem | null>(null);
   const [reportQty, setReportQty] = useState('');
   const [reportNotes, setReportNotes] = useState('');
+  const [isUploading, setIsUploading] = useState(false);
+  const [isResolveOpen, setIsResolveOpen] = useState(false);
+  const [selectedShortage, setSelectedShortage] = useState<ShortageReport | null>(null);
+  const [actionTakenText, setActionTakenText] = useState('');
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
-    // Load default CSV
-    fetch('/data.csv')
-      .then(res => res.text())
-      .then(csv => {
-        Papa.parse(csv, {
-          header: true,
-          delimiter: ';',
-          skipEmptyLines: true,
-          complete: (results) => {
-            const parsed = results.data.map((row: any) => ({
-              status: row['Status'] || '',
-              itemId: row['Cod Item'] || '',
-              itemName: row['Desc Item'] || '',
-              isMissing: row['Em Falta'] === 'Sim',
-              quantityTotal: parseFloat(row['Qtd. Total']?.replace(',', '.') || '0'),
-              quantityPending: parseFloat(row['Qtd Pend']?.replace(',', '.') || '0')
-            })).filter((item: CsvItem) => item.itemId && item.status === 'Ativo');
-            setCsvItems(parsed);
-          }
-        });
-      });
-
-    // Realtime Firebase subscription for my shortages
+    // Load catalog from Firebase
     if (auth.currentUser) {
-      const q = query(
-        collection(db, 'shortages'),
-        where('userId', '==', auth.currentUser.uid)
+      const catalogQuery = query(
+        collection(db, 'catalog'),
+        where('status', '==', 'Ativo')
       );
 
-      const unsub = onSnapshot(q, (snapshot) => {
+      const unsubCatalog = onSnapshot(catalogQuery, (snapshot) => {
+        const items: CsvItem[] = [];
+        snapshot.forEach(docSnap => {
+          const data = docSnap.data();
+          items.push({
+            status: data.status,
+            itemId: data.itemId,
+            itemName: data.itemName,
+            isMissing: data.isMissing,
+            quantityTotal: data.quantityTotal,
+            quantityPending: data.quantityPending
+          });
+        });
+        setCsvItems(items);
+      }, (error) => {
+        handleFirestoreError(error, OperationType.LIST, 'catalog');
+      });
+
+      // Realtime Firebase subscription for shortages
+      const shortageQuery = user?.email === 'joaopsfarma@gmail.com' 
+         ? query(collection(db, 'shortages'))
+         : query(
+             collection(db, 'shortages'),
+             where('userId', '==', auth.currentUser.uid)
+           );
+
+      const unsubShortages = onSnapshot(shortageQuery, (snapshot) => {
         const specs: ShortageReport[] = [];
-        snapshot.forEach(doc => {
-          const data = doc.data();
+        snapshot.forEach(docSnap => {
+          const data = docSnap.data();
           specs.push({
-            id: doc.id,
+            id: docSnap.id,
             itemId: data.itemId,
             itemName: data.itemName,
             reportedQuantity: data.reportedQuantity,
-            reportedAt: data.reportedAt?.toDate?.() || new Date(data.reportedAt),
+            reportedAt: data.reportedAt?.toDate?.() || new Date(data.reportedAt || Date.now()),
             userId: data.userId,
             status: data.status,
             notes: data.notes
@@ -75,11 +85,108 @@ export default function Dashboard() {
         setShortages(specs);
       }, (error) => {
         handleFirestoreError(error, OperationType.LIST, 'shortages');
-        toast.error('Erro ao carregar faltas');
       });
-      return () => unsub();
+      
+      return () => {
+        unsubCatalog();
+        unsubShortages();
+      };
     }
   }, []);
+
+  const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    setIsUploading(true);
+    Papa.parse(file, {
+      header: false,
+      skipEmptyLines: true,
+      complete: async (results) => {
+        try {
+          const parsedItems: any[] = [];
+          
+          results.data.forEach((row: any) => {
+            if (!Array.isArray(row)) return;
+            
+            let productStr = '';
+            let qtyStr = '0';
+            
+            for (let i = 0; i < row.length; i++) {
+              const cell = String(row[i]).trim();
+              if (/^\d+\s*-.+/.test(cell)) {
+                productStr = cell;
+                
+                // Try to find quantity (first column with numbers like "190,0000" or "1.079,0000")
+                for (let j = i + 1; j < row.length; j++) {
+                  const val = String(row[j]).trim().replace(/['"]/g, '');
+                  if (/^\d{1,3}(\.\d{3})*(,\d+)?$/.test(val)) {
+                    qtyStr = val;
+                    break;
+                  }
+                }
+                break;
+              }
+            }
+
+            if (productStr) {
+              const parts = productStr.split('-');
+              const itemId = parts[0].trim().replace(/[^a-zA-Z0-9_\-]/g, '');
+              const itemName = parts.slice(1).join('-').trim().substring(0, 500);
+              const quantityTotal = parseFloat(qtyStr.replace(/\./g, '').replace(',', '.')) || 0;
+              
+              if (itemId && itemName) {
+                 parsedItems.push({
+                   status: 'Ativo',
+                   itemId,
+                   itemName,
+                   isMissing: false,
+                   quantityTotal,
+                   quantityPending: 0
+                 });
+              }
+            }
+          });
+
+          if (parsedItems.length === 0) {
+            toast.error('Nenhum item válido encontrado no CSV.');
+            setIsUploading(false);
+            return;
+          }
+
+          // Upload in batches of 500
+          for (let i = 0; i < parsedItems.length; i += 500) {
+            const batch = writeBatch(db);
+            const chunk = parsedItems.slice(i, i + 500);
+            
+            chunk.forEach(item => {
+              const docRef = doc(db, 'catalog', item.itemId);
+              batch.set(docRef, {
+                ...item,
+                updatedAt: serverTimestamp()
+              });
+            });
+            
+            await batch.commit();
+          }
+
+          toast.success(`${parsedItems.length} itens do catálogo carregados com sucesso!`);
+        } catch (error) {
+          console.error(error);
+          toast.error('Erro ao importar CSV. Verifique o console.');
+        } finally {
+          setIsUploading(false);
+          if (fileInputRef.current) {
+            fileInputRef.current.value = '';
+          }
+        }
+      },
+      error: () => {
+        toast.error('Erro ao ler arquivo CSV');
+        setIsUploading(false);
+      }
+    });
+  };
 
   const handleReportShortage = async () => {
     if (!selectedItem) {
@@ -125,17 +232,38 @@ export default function Dashboard() {
     }
   };
 
-  const handleResolveShortage = async (shortage: ShortageReport) => {
-    if (!shortage.id) return;
+  const handleResolveShortage = async () => {
+    if (!selectedShortage?.id) return;
     try {
-      const docRef = doc(db, 'shortages', shortage.id);
+      const docRef = doc(db, 'shortages', selectedShortage.id);
       await updateDoc(docRef, {
-        status: 'resolved'
+        status: 'resolved',
+        actionTaken: actionTakenText
       });
       toast.success('Falta resolvida');
+      setIsResolveOpen(false);
+      setSelectedShortage(null);
+      setActionTakenText('');
     } catch (error) {
-      handleFirestoreError(error, OperationType.UPDATE, `shortages/${shortage.id}`);
+      handleFirestoreError(error, OperationType.UPDATE, `shortages/${selectedShortage.id}`);
     }
+  };
+
+  const exportToExcel = () => {
+    const wsData = shortages.map(s => ({
+      Data: s.reportedAt instanceof Date ? new Intl.DateTimeFormat('pt-BR', { dateStyle: 'short', timeStyle: 'short' }).format(s.reportedAt) : '',
+      'Código': s.itemId,
+      Item: s.itemName,
+      'Quantidade Faltante': s.reportedQuantity,
+      Status: s.status === 'resolved' ? 'Resolvido' : 'Pendente',
+      Observações: s.notes || '',
+      'Ação Tomada': s.actionTaken || ''
+    }));
+
+    const ws = XLSX.utils.json_to_sheet(wsData);
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, 'Faltas');
+    XLSX.writeFile(wb, `relatorio_faltas_${format(new Date(), 'dd-MM-yyyy')}.xlsx`);
   };
 
   const filteredItems = csvItems.filter(item => 
@@ -161,23 +289,77 @@ export default function Dashboard() {
     return data;
   }, [shortages]);
 
+  const topMissingItems = useMemo(() => {
+    const map = new Map<string, {name: string, quantity: number}>();
+    shortages.forEach(s => {
+      if (s.status === 'pending') {
+        const existing = map.get(s.itemId) || { name: s.itemName, quantity: 0 };
+        existing.quantity += s.reportedQuantity;
+        map.set(s.itemId, existing);
+      }
+    });
+    return Array.from(map.entries())
+      .map(([id, data]) => ({ id, ...data }))
+      .sort((a, b) => b.quantity - a.quantity)
+      .slice(0, 5);
+  }, [shortages]);
+
+  const statusData = useMemo(() => {
+    const pending = shortages.filter(s => s.status === 'pending').length;
+    const resolved = shortages.filter(s => s.status === 'resolved').length;
+    return [
+      { name: 'Pendentes', value: pending, color: '#f59e0b' },
+      { name: 'Resolvidas', value: resolved, color: '#10b981' }
+    ];
+  }, [shortages]);
+
   return (
     <div className="flex flex-col h-screen bg-gray-50 text-gray-900 font-sans">
-      <header className="flex h-16 shrink-0 items-center gap-2 border-b bg-white px-6 shadow-sm">
-        <FileText className="h-5 w-5 text-indigo-600" />
-        <h1 className="text-xl font-semibold tracking-tight text-gray-900">Gestão de Faltas - Central de Abastecimento</h1>
-        <div className="ml-auto flex items-center gap-4">
-          <span className="text-sm font-medium text-gray-600">{auth.currentUser?.email}</span>
+      <header className="flex flex-col sm:flex-row h-auto sm:h-16 shrink-0 items-start sm:items-center gap-4 sm:gap-2 border-b bg-white px-4 sm:px-6 py-4 sm:py-0 shadow-sm">
+        <div className="flex items-center gap-2 w-full sm:w-auto">
+          <FileText className="h-5 w-5 text-indigo-600 hidden sm:block" />
+          <h1 className="text-xl font-semibold tracking-tight text-gray-900">Gestão de Faltas - Central de Abastecimento</h1>
+        </div>
+        <div className="sm:ml-auto flex items-center justify-between w-full sm:w-auto gap-4">
+          <div className="flex items-center gap-2">
+            {user?.email === 'joaopsfarma@gmail.com' && (
+              <>
+                <input 
+                  type="file" 
+                  accept=".csv" 
+                  className="hidden" 
+                  ref={fileInputRef} 
+                  onChange={handleFileUpload} 
+                />
+                <Button 
+                  variant="secondary" 
+                  size="sm" 
+                  onClick={() => fileInputRef.current?.click()}
+                  disabled={isUploading}
+                >
+                  <Upload className="mr-2 h-4 w-4 hidden sm:block" />
+                  {isUploading ? '...' : <><span className="hidden sm:inline">Importar CSV</span><Upload className="sm:hidden h-4 w-4" /></>}
+                </Button>
+              </>
+            )}
+            <span className="text-sm font-medium text-gray-600 truncate max-w-[120px] sm:max-w-none">
+              {auth.currentUser?.displayName 
+                ? `${auth.currentUser.displayName} (Anônimo)` 
+                : auth.currentUser?.isAnonymous 
+                  ? 'Usuário Anônimo' 
+                  : auth.currentUser?.email}
+            </span>
+          </div>
           <Button variant="outline" size="sm" onClick={() => auth.signOut()}>Sair</Button>
         </div>
       </header>
       
-      <main className="flex-1 overflow-auto p-6 md:p-8">
-        <div className="mx-auto max-w-6xl space-y-8">
+      <main className="flex-1 overflow-auto p-4 sm:p-6 md:p-8">
+        <div className="mx-auto max-w-6xl space-y-6 sm:space-y-8">
           
-          <div className="grid grid-cols-1 gap-6 md:grid-cols-3">
+          <div className="grid grid-cols-1 gap-4 sm:gap-6 md:grid-cols-3">
             <Card className="bg-white">
-              <CardContent className="flex items-center gap-4 p-6">
+              <CardContent className="flex items-center gap-4 p-4 sm:p-6">
                 <div className="rounded-full bg-blue-100 p-3 text-blue-600">
                   <FileText className="h-6 w-6" />
                 </div>
@@ -188,7 +370,7 @@ export default function Dashboard() {
               </CardContent>
             </Card>
             <Card className="bg-white">
-              <CardContent className="flex items-center gap-4 p-6">
+              <CardContent className="flex items-center gap-4 p-4 sm:p-6">
                 <div className="rounded-full bg-amber-100 p-3 text-amber-600">
                   <BarChart2 className="h-6 w-6" />
                 </div>
@@ -199,7 +381,7 @@ export default function Dashboard() {
               </CardContent>
             </Card>
             <Card className="bg-white">
-              <CardContent className="flex items-center gap-4 p-6">
+              <CardContent className="flex items-center gap-4 p-4 sm:p-6">
                 <div className="rounded-full bg-emerald-100 p-3 text-emerald-600">
                   <CheckCircle className="h-6 w-6" />
                 </div>
@@ -212,22 +394,27 @@ export default function Dashboard() {
           </div>
 
           <Tabs defaultValue="catalog">
-            <TabsList className="w-full justify-start border-b rounded-none h-auto bg-transparent p-0">
-              <TabsTrigger value="catalog" className="rounded-none border-b-2 border-transparent data-[state=active]:border-indigo-600 data-[state=active]:bg-transparent px-4 py-3">
-                Catálogo CSV
-              </TabsTrigger>
-              <TabsTrigger value="shortages" className="rounded-none border-b-2 border-transparent data-[state=active]:border-indigo-600 data-[state=active]:bg-transparent px-4 py-3">
-                Identificação de Faltas
-              </TabsTrigger>
-              <TabsTrigger value="reports" className="rounded-none border-b-2 border-transparent data-[state=active]:border-indigo-600 data-[state=active]:bg-transparent px-4 py-3 text-indigo-600 flex items-center gap-2">
-                <TrendingUp className="h-4 w-4" /> Relatório Periódico
-              </TabsTrigger>
-            </TabsList>
+            <div className="overflow-x-auto pb-1 mb-2">
+              <TabsList className="w-full sm:w-auto inline-flex justify-start border-b rounded-none h-auto bg-transparent p-0 min-w-max">
+                <TabsTrigger value="catalog" className="rounded-none border-b-2 border-transparent data-[state=active]:border-indigo-600 data-[state=active]:bg-transparent px-4 py-3">
+                  Catálogo CSV
+                </TabsTrigger>
+                <TabsTrigger value="shortages" className="rounded-none border-b-2 border-transparent data-[state=active]:border-indigo-600 data-[state=active]:bg-transparent px-4 py-3">
+                  Identificação de Faltas
+                </TabsTrigger>
+                <TabsTrigger value="kpis" className="rounded-none border-b-2 border-transparent data-[state=active]:border-indigo-600 data-[state=active]:bg-transparent px-4 py-3 text-indigo-600 flex items-center gap-2">
+                  <Activity className="h-4 w-4" /> Indicadores & KPIs
+                </TabsTrigger>
+                <TabsTrigger value="reports" className="rounded-none border-b-2 border-transparent data-[state=active]:border-indigo-600 data-[state=active]:bg-transparent px-4 py-3 text-indigo-600 flex items-center gap-2">
+                  <TrendingUp className="h-4 w-4" /> Relatório Periódico
+                </TabsTrigger>
+              </TabsList>
+            </div>
             
             <TabsContent value="catalog" className="mt-6">
               <Card>
                 <CardHeader>
-                  <CardTitle className="text-lg">Catálogo de Itens do Estoque (CSV)</CardTitle>
+                  <CardTitle className="text-lg">Catálogo de Itens do Estoque (Mapeado no Firebase)</CardTitle>
                 </CardHeader>
                 <CardContent>
                   <div className="mb-4 relative">
@@ -240,7 +427,7 @@ export default function Dashboard() {
                     />
                   </div>
                   <div className="rounded-md border max-h-[500px] overflow-auto">
-                    <Table>
+                    <Table className="min-w-[500px]">
                       <TableHeader>
                         <TableRow>
                           <TableHead>Código</TableHead>
@@ -266,10 +453,8 @@ export default function Dashboard() {
                                   setSelectedItem(null);
                                 }
                               }}>
-                                <DialogTrigger asChild>
-                                  <Button size="sm" variant="secondary" className="h-8">
-                                    <Plus className="mr-1 h-3 w-3" /> Reportar
-                                  </Button>
+                                <DialogTrigger render={<Button size="sm" variant="secondary" className="h-8" />}>
+                                  <Plus className="mr-1 h-3 w-3" /> Reportar
                                 </DialogTrigger>
                                 <DialogContent>
                                   <DialogHeader>
@@ -330,12 +515,15 @@ export default function Dashboard() {
 
             <TabsContent value="shortages" className="mt-6">
               <Card>
-                <CardHeader>
+                <CardHeader className="flex flex-row items-center justify-between">
                   <CardTitle className="text-lg">Relatório de Faltas Reportadas</CardTitle>
+                  <Button variant="secondary" size="sm" onClick={exportToExcel}>
+                    <Download className="mr-2 h-4 w-4" /> Exportar Excel
+                  </Button>
                 </CardHeader>
                 <CardContent>
-                  <div className="rounded-md border">
-                    <Table>
+                  <div className="rounded-md border overflow-x-auto">
+                    <Table className="min-w-[600px]">
                       <TableHeader>
                         <TableRow>
                           <TableHead>Data</TableHead>
@@ -358,6 +546,7 @@ export default function Dashboard() {
                             <TableCell className="text-sm">
                               {shortage.itemName}
                               {shortage.notes && <p className="text-xs text-gray-500 mt-1">Obs: {shortage.notes}</p>}
+                              {shortage.actionTaken && <p className="text-xs text-emerald-600 mt-1">Ação: {shortage.actionTaken}</p>}
                             </TableCell>
                             <TableCell className="text-right font-medium">{shortage.reportedQuantity}</TableCell>
                             <TableCell>
@@ -368,15 +557,40 @@ export default function Dashboard() {
                               </span>
                             </TableCell>
                             <TableCell className="text-center">
-                              {shortage.status === 'pending' && (
-                                <Button 
-                                  variant="outline" 
-                                  size="sm" 
-                                  onClick={() => handleResolveShortage(shortage)}
-                                  className="h-7 text-emerald-600 border-emerald-200 hover:bg-emerald-50"
-                                >
-                                  <CheckCircle className="mr-1 h-3 w-3" /> Resolver
-                                </Button>
+                              {shortage.status === 'pending' && !auth.currentUser?.isAnonymous && (
+                                <Dialog open={isResolveOpen && selectedShortage?.id === shortage.id} onOpenChange={(open) => {
+                                  setIsResolveOpen(open);
+                                  if (open) {
+                                    setSelectedShortage(shortage);
+                                    setActionTakenText('');
+                                  } else {
+                                    setSelectedShortage(null);
+                                  }
+                                }}>
+                                  <DialogTrigger render={<Button variant="outline" size="sm" className="h-7 text-emerald-600 border-emerald-200 hover:bg-emerald-50" />}>
+                                    <CheckCircle className="mr-1 h-3 w-3" /> Resolver
+                                  </DialogTrigger>
+                                  <DialogContent>
+                                    <DialogHeader>
+                                      <DialogTitle>Resolver Falta</DialogTitle>
+                                    </DialogHeader>
+                                    <div className="space-y-4 py-4">
+                                      <div className="space-y-2">
+                                        <Label htmlFor="actionTaken">Ação Tomada</Label>
+                                        <Input 
+                                          id="actionTaken" 
+                                          value={actionTakenText} 
+                                          onChange={(e) => setActionTakenText(e.target.value)} 
+                                          placeholder="Ex: Item foi reposto via remanejamento..."
+                                        />
+                                      </div>
+                                    </div>
+                                    <DialogFooter>
+                                      <Button variant="outline" onClick={() => setIsResolveOpen(false)}>Cancelar</Button>
+                                      <Button onClick={handleResolveShortage} disabled={!actionTakenText.trim()}>Confirmar e Resolver</Button>
+                                    </DialogFooter>
+                                  </DialogContent>
+                                </Dialog>
                               )}
                             </TableCell>
                           </TableRow>
@@ -391,6 +605,59 @@ export default function Dashboard() {
                   </div>
                 </CardContent>
               </Card>
+            </TabsContent>
+
+            <TabsContent value="kpis" className="mt-6">
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                <Card>
+                  <CardHeader>
+                    <CardTitle className="text-lg">Volume de Faltas por Status</CardTitle>
+                  </CardHeader>
+                  <CardContent>
+                    <div className="h-[300px] w-full">
+                      <ResponsiveContainer width="100%" height="100%">
+                        <PieChart>
+                          <Pie
+                            data={statusData}
+                            cx="50%"
+                            cy="50%"
+                            innerRadius={60}
+                            outerRadius={100}
+                            paddingAngle={5}
+                            dataKey="value"
+                            label={({ name, percent }) => `${name} ${(percent * 100).toFixed(0)}%`}
+                          >
+                            {statusData.map((entry, index) => (
+                              <Cell key={`cell-${index}`} fill={entry.color} />
+                            ))}
+                          </Pie>
+                          <Tooltip />
+                          <Legend />
+                        </PieChart>
+                      </ResponsiveContainer>
+                    </div>
+                  </CardContent>
+                </Card>
+
+                <Card>
+                  <CardHeader>
+                    <CardTitle className="text-lg">Top 5 Itens com Mais Faltas (Pendentes)</CardTitle>
+                  </CardHeader>
+                  <CardContent>
+                    <div className="h-[300px] w-full">
+                      <ResponsiveContainer width="100%" height="100%">
+                        <BarChart data={topMissingItems} layout="vertical" margin={{ top: 5, right: 30, left: 20, bottom: 5 }}>
+                          <CartesianGrid strokeDasharray="3 3" horizontal={true} vertical={false} />
+                          <XAxis type="number" />
+                          <YAxis dataKey="name" type="category" width={150} tick={{fontSize: 12}} />
+                          <Tooltip />
+                          <Bar dataKey="quantity" name="Quantidade Faltante" fill="#ef4444" radius={[0, 4, 4, 0]} />
+                        </BarChart>
+                      </ResponsiveContainer>
+                    </div>
+                  </CardContent>
+                </Card>
+              </div>
             </TabsContent>
 
             <TabsContent value="reports" className="mt-6">
@@ -425,3 +692,4 @@ export default function Dashboard() {
     </div>
   );
 }
+

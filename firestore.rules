@@ -13,9 +13,10 @@ service cloud.firestore {
     function incoming() { return request.resource.data; }
     function existing() { return resource.data; }
     
-    // We only use isSignedIn since this is an internal tool, maybe no email_verified check
-    // Wait, the prompt says "strictly mandate that the user is verified using request.auth.token.email_verified == true"
-    function isSignedIn() { return request.auth != null && request.auth.token.email_verified == true; }
+    // The prompt says "strictly mandate that the user is verified using request.auth.token.email_verified == true" for standard writes, but now the user requested anonymous mode.
+    function isSignedIn() { return request.auth != null; }
+    function isRegistered() { return isSignedIn() && request.auth.token.firebase.sign_in_provider != 'anonymous'; }
+    function isAdmin() { return isSignedIn() && request.auth.token.email == 'joaopsfarma@gmail.com'; }
     
     // Validation Blueprints
     function isValidShortageReport(data) {
@@ -24,12 +25,43 @@ service cloud.firestore {
         && data.reportedQuantity is number && data.reportedQuantity > 0
         && data.userId == request.auth.uid
         && data.status in ['pending', 'resolved']
-        && (!data.keys().hasAny(['notes']) || (data.notes is string && data.notes.size() <= 1000));
+        && (!data.keys().hasAny(['notes']) || (data.notes is string && data.notes.size() <= 1000))
+        && (!data.keys().hasAny(['actionTaken']) || (data.actionTaken is string && data.actionTaken.size() <= 2000));
+    }
+    
+    function isValidCatalogItem(data) {
+      return data.itemId is string && data.itemId.size() > 0 && data.itemId.size() <= 100
+        && data.itemName is string && data.itemName.size() > 0 && data.itemName.size() <= 500
+        && data.status is string && data.status.size() <= 100
+        && data.isMissing is bool
+        && data.quantityTotal is number && data.quantityTotal >= 0
+        && data.quantityPending is number && data.quantityPending >= 0;
+    }
+
+    match /catalog/{itemId} {
+      allow get: if isSignedIn() && isValidId(itemId);
+      allow list: if isSignedIn() && resource.data.status == 'Ativo';
+      
+      allow create: if isAdmin()
+        && isValidId(itemId)
+        && incoming().keys().hasAll(['itemId', 'itemName', 'status', 'isMissing', 'quantityTotal', 'quantityPending', 'updatedAt'])
+        && incoming().keys().size() == 7
+        && isValidCatalogItem(incoming())
+        && incoming().updatedAt == request.time;
+        
+      allow update: if isAdmin()
+        && isValidId(itemId)
+        && isValidCatalogItem(incoming())
+        && incoming().itemId == existing().itemId // immutable
+        && incoming().updatedAt == request.time
+        && (
+            incoming().diff(existing()).affectedKeys().hasOnly(['itemName', 'status', 'isMissing', 'quantityTotal', 'quantityPending', 'updatedAt'])
+        );
     }
 
     match /shortages/{shortageId} {
-      allow get: if isSignedIn() && isValidId(shortageId) && existing().userId == request.auth.uid;
-      allow list: if isSignedIn() && resource.data.userId == request.auth.uid;
+      allow get: if isSignedIn() && isValidId(shortageId) && (existing().userId == request.auth.uid || isRegistered());
+      allow list: if isSignedIn() && (resource.data.userId == request.auth.uid || isRegistered());
       
       allow create: if isSignedIn() 
         && isValidId(shortageId)
@@ -40,15 +72,16 @@ service cloud.firestore {
         
       allow update: if isSignedIn() 
         && isValidId(shortageId)
-        && existing().userId == request.auth.uid
+        && (existing().userId == request.auth.uid || isRegistered())
         && isValidShortageReport(incoming()) // validates shape
         && incoming().itemId == existing().itemId // immutable
         && incoming().itemName == existing().itemName // immutable
         && incoming().userId == existing().userId // immutable
         && incoming().reportedAt == existing().reportedAt // immutable
         && (
-            (incoming().diff(existing()).affectedKeys().hasOnly(['status', 'notes']))
-        );
+            (incoming().diff(existing()).affectedKeys().hasOnly(['status', 'notes', 'actionTaken']))
+        )
+        && (incoming().status == 'resolved' ? isRegistered() : true);
         
       allow delete: if isSignedIn() 
         && isValidId(shortageId) 
