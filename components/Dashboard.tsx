@@ -12,6 +12,7 @@ import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger, DialogFooter } from '@/components/ui/dialog';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Search, Plus, CheckCircle, FileText, BarChart2, TrendingUp, Upload, Download, Target, Activity } from 'lucide-react';
 import { toast } from 'sonner';
 import { format, subDays, startOfDay, isSameDay } from 'date-fns';
@@ -318,7 +319,7 @@ export default function Dashboard({ user }: { user: any }) {
       <header className="flex flex-col sm:flex-row h-auto sm:h-16 shrink-0 items-start sm:items-center gap-4 sm:gap-2 border-b bg-white px-4 sm:px-6 py-4 sm:py-0 shadow-sm">
         <div className="flex items-center gap-2 w-full sm:w-auto">
           <FileText className="h-5 w-5 text-indigo-600 hidden sm:block" />
-          <h1 className="text-xl font-semibold tracking-tight text-gray-900">Gestão de Faltas - Central de Abastecimento</h1>
+          <h1 className="text-lg sm:text-xl font-semibold tracking-tight text-gray-900 truncate">Gestão de Faltas<span className="hidden sm:inline"> - Central de Abastecimento</span></h1>
         </div>
         <div className="sm:ml-auto flex items-center justify-between w-full sm:w-auto gap-4">
           <div className="flex items-center gap-2">
@@ -396,17 +397,17 @@ export default function Dashboard({ user }: { user: any }) {
           <Tabs defaultValue="catalog">
             <div className="overflow-x-auto pb-1 mb-2">
               <TabsList className="w-full sm:w-auto inline-flex justify-start border-b rounded-none h-auto bg-transparent p-0 min-w-max">
-                <TabsTrigger value="catalog" className="rounded-none border-b-2 border-transparent data-[state=active]:border-indigo-600 data-[state=active]:bg-transparent px-4 py-3">
+                <TabsTrigger value="catalog" className="text-sm rounded-none border-b-2 border-transparent data-[state=active]:border-indigo-600 data-[state=active]:bg-transparent px-3 sm:px-4 py-3">
                   Catálogo CSV
                 </TabsTrigger>
-                <TabsTrigger value="shortages" className="rounded-none border-b-2 border-transparent data-[state=active]:border-indigo-600 data-[state=active]:bg-transparent px-4 py-3">
+                <TabsTrigger value="shortages" className="text-sm rounded-none border-b-2 border-transparent data-[state=active]:border-indigo-600 data-[state=active]:bg-transparent px-3 sm:px-4 py-3">
                   Identificação de Faltas
                 </TabsTrigger>
-                <TabsTrigger value="kpis" className="rounded-none border-b-2 border-transparent data-[state=active]:border-indigo-600 data-[state=active]:bg-transparent px-4 py-3 text-indigo-600 flex items-center gap-2">
-                  <Activity className="h-4 w-4" /> Indicadores & KPIs
+                <TabsTrigger value="kpis" className="text-sm rounded-none border-b-2 border-transparent data-[state=active]:border-indigo-600 data-[state=active]:bg-transparent px-3 sm:px-4 py-3 text-indigo-600 flex items-center gap-2">
+                  <Activity className="h-4 w-4 hidden sm:block" /> Indicadores & KPIs
                 </TabsTrigger>
-                <TabsTrigger value="reports" className="rounded-none border-b-2 border-transparent data-[state=active]:border-indigo-600 data-[state=active]:bg-transparent px-4 py-3 text-indigo-600 flex items-center gap-2">
-                  <TrendingUp className="h-4 w-4" /> Relatório Periódico
+                <TabsTrigger value="reports" className="text-sm rounded-none border-b-2 border-transparent data-[state=active]:border-indigo-600 data-[state=active]:bg-transparent px-3 sm:px-4 py-3 text-indigo-600 flex items-center gap-2">
+                  <TrendingUp className="h-4 w-4 hidden sm:block" /> Relatório Periódico
                 </TabsTrigger>
               </TabsList>
             </div>
@@ -478,13 +479,17 @@ export default function Dashboard({ user }: { user: any }) {
                                       />
                                     </div>
                                     <div className="space-y-2">
-                                      <Label htmlFor="notes">Observações</Label>
-                                      <Input 
-                                        id="notes" 
-                                        value={reportNotes} 
-                                        onChange={(e) => setReportNotes(e.target.value)} 
-                                        placeholder="Nota opcional..."
-                                      />
+                                      <Label htmlFor="notes">Motivo / Observações</Label>
+                                      <Select value={reportNotes} onValueChange={setReportNotes}>
+                                        <SelectTrigger id="notes">
+                                          <SelectValue placeholder="Selecione o motivo..." />
+                                        </SelectTrigger>
+                                        <SelectContent>
+                                          <SelectItem value="Estoque zerado">Estoque zerado</SelectItem>
+                                          <SelectItem value="Estoque divergente">Estoque divergente</SelectItem>
+                                          <SelectItem value="Não encontrado">Não encontrado</SelectItem>
+                                        </SelectContent>
+                                      </Select>
                                     </div>
                                   </div>
                                   <DialogFooter>
@@ -515,9 +520,9 @@ export default function Dashboard({ user }: { user: any }) {
 
             <TabsContent value="shortages" className="mt-6">
               <Card>
-                <CardHeader className="flex flex-row items-center justify-between">
+                <CardHeader className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
                   <CardTitle className="text-lg">Relatório de Faltas Reportadas</CardTitle>
-                  <Button variant="secondary" size="sm" onClick={exportToExcel}>
+                  <Button variant="secondary" size="sm" onClick={exportToExcel} className="w-full sm:w-auto">
                     <Download className="mr-2 h-4 w-4" /> Exportar Excel
                   </Button>
                 </CardHeader>
@@ -577,12 +582,18 @@ export default function Dashboard({ user }: { user: any }) {
                                     <div className="space-y-4 py-4">
                                       <div className="space-y-2">
                                         <Label htmlFor="actionTaken">Ação Tomada</Label>
-                                        <Input 
-                                          id="actionTaken" 
-                                          value={actionTakenText} 
-                                          onChange={(e) => setActionTakenText(e.target.value)} 
-                                          placeholder="Ex: Item foi reposto via remanejamento..."
-                                        />
+                                        <Select value={actionTakenText} onValueChange={setActionTakenText}>
+                                          <SelectTrigger id="actionTaken">
+                                            <SelectValue placeholder="Selecione a ação tomada..." />
+                                          </SelectTrigger>
+                                          <SelectContent>
+                                            <SelectItem value="Contatado planejamento">Contatado planejamento</SelectItem>
+                                            <SelectItem value="Compra drogaria">Compra drogaria</SelectItem>
+                                            <SelectItem value="Transferência entre empresas">Transferência entre empresas</SelectItem>
+                                            <SelectItem value="Substituição">Substituição</SelectItem>
+                                            <SelectItem value="Inventário">Inventário</SelectItem>
+                                          </SelectContent>
+                                        </Select>
                                       </div>
                                     </div>
                                     <DialogFooter>
