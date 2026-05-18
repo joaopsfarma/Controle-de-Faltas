@@ -23,7 +23,7 @@ service cloud.firestore {
       return data.itemId is string && data.itemId.size() > 0 && data.itemId.size() <= 100
         && data.itemName is string && data.itemName.size() > 0 && data.itemName.size() <= 500
         && data.reportedQuantity is number && data.reportedQuantity > 0
-        && data.userId == request.auth.uid
+        && data.userId is string
         && data.status in ['pending', 'resolved']
         && (!data.keys().hasAny(['notes']) || (data.notes is string && data.notes.size() <= 1000))
         && (!data.keys().hasAny(['actionTaken']) || (data.actionTaken is string && data.actionTaken.size() <= 2000));
@@ -66,8 +66,9 @@ service cloud.firestore {
       allow create: if isSignedIn() 
         && isValidId(shortageId)
         && incoming().keys().hasAll(['itemId', 'itemName', 'reportedQuantity', 'reportedAt', 'userId', 'status'])
-        && incoming().keys().size() <= 7
+        && incoming().keys().size() <= 8
         && isValidShortageReport(incoming())
+        && incoming().userId == request.auth.uid
         && incoming().reportedAt == request.time;
         
       allow update: if isSignedIn() 

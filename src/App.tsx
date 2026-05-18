@@ -52,7 +52,11 @@ export default function App() {
       await signInWithPopup(auth, provider);
     } catch (err: any) {
       console.error('Google login error', err);
-      toast.error('Erro ao entrar com Google: ' + err.message);
+      if (err.code === 'auth/popup-closed-by-user') {
+        toast.error('O login foi cancelado. Se a janela fechou sozinha, certifique-se de permitir pop-ups ou tente abrir o aplicativo em uma nova aba.');
+      } else {
+        toast.error('Erro ao entrar com Google: ' + err.message);
+      }
     }
   };
 
