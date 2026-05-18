@@ -316,42 +316,43 @@ export default function Dashboard({ user }: { user: any }) {
 
   return (
     <div className="flex flex-col h-screen bg-gray-50 text-gray-900 font-sans">
-      <header className="flex flex-col sm:flex-row h-auto sm:h-16 shrink-0 items-start sm:items-center gap-4 sm:gap-2 border-b bg-white px-4 sm:px-6 py-4 sm:py-0 shadow-sm">
-        <div className="flex items-center gap-2 w-full sm:w-auto">
-          <FileText className="h-5 w-5 text-indigo-600 hidden sm:block" />
-          <h1 className="text-lg sm:text-xl font-semibold tracking-tight text-gray-900 truncate">Gestão de Faltas<span className="hidden sm:inline"> - Central de Abastecimento</span></h1>
-        </div>
-        <div className="sm:ml-auto flex items-center justify-between w-full sm:w-auto gap-4">
-          <div className="flex items-center gap-2">
-            {user?.email === 'joaopsfarma@gmail.com' && (
-              <>
-                <input 
-                  type="file" 
-                  accept=".csv" 
-                  className="hidden" 
-                  ref={fileInputRef} 
-                  onChange={handleFileUpload} 
-                />
-                <Button 
-                  variant="secondary" 
-                  size="sm" 
-                  onClick={() => fileInputRef.current?.click()}
-                  disabled={isUploading}
-                >
-                  <Upload className="mr-2 h-4 w-4 hidden sm:block" />
-                  {isUploading ? '...' : <><span className="hidden sm:inline">Importar CSV</span><Upload className="sm:hidden h-4 w-4" /></>}
-                </Button>
-              </>
-            )}
-            <span className="text-sm font-medium text-gray-600 truncate max-w-[120px] sm:max-w-none">
-              {auth.currentUser?.displayName 
-                ? `${auth.currentUser.displayName} (Anônimo)` 
-                : auth.currentUser?.isAnonymous 
-                  ? 'Usuário Anônimo' 
-                  : auth.currentUser?.email}
-            </span>
+      <header className="banner-gradiente shrink-0 shadow-sm flex-col sm:flex-row relative">
+        <div className="absolute inset-0 flex items-center px-4 sm:px-6 w-full justify-between">
+          <div className="flex items-center gap-2 w-full sm:w-auto">
+            <h1 className="titulo-rede truncate drop-shadow-md pb-1 border-white" style={{ color: 'white' }}>Gestão de Faltas<span className="hidden sm:inline"> - Central de Abastecimento</span></h1>
           </div>
-          <Button variant="outline" size="sm" onClick={() => auth.signOut()}>Sair</Button>
+          <div className="sm:ml-auto flex items-center justify-between w-full sm:w-auto gap-4">
+            <div className="flex items-center gap-2">
+              {user?.email === 'joaopsfarma@gmail.com' && (
+                <>
+                  <input 
+                    type="file" 
+                    accept=".csv" 
+                    className="hidden" 
+                    ref={fileInputRef} 
+                    onChange={handleFileUpload} 
+                  />
+                  <button 
+                    className="botao-primario flex items-center gap-2"
+                    onClick={() => fileInputRef.current?.click()}
+                    disabled={isUploading}
+                    style={{ background: 'rgba(255, 255, 255, 0.2)', color: 'white', border: '1px solid rgba(255, 255, 255, 0.4)' }}
+                  >
+                    <Upload className="h-4 w-4 hidden sm:block" />
+                    {isUploading ? '...' : <><span className="hidden sm:inline">Importar CSV</span><Upload className="sm:hidden h-4 w-4" /></>}
+                  </button>
+                </>
+              )}
+              <span className="text-sm font-medium text-white truncate max-w-[120px] sm:max-w-none ml-2">
+                {auth.currentUser?.displayName 
+                  ? `${auth.currentUser.displayName} (Anônimo)` 
+                  : auth.currentUser?.isAnonymous 
+                    ? 'Usuário Anônimo' 
+                    : auth.currentUser?.email}
+              </span>
+            </div>
+            <button className="botao-primario" style={{ padding: '6px 12px', fontSize: '0.875rem' }} onClick={() => auth.signOut()}>Sair</button>
+          </div>
         </div>
       </header>
       

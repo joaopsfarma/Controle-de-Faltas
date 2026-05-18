@@ -49,6 +49,9 @@
 }
 
 :root {
+    --cor-primaria-roxo: #6B21A8;
+    --cor-secundaria-verde: #10B981;
+    --cor-texto-claro: #ffffff;
     --background: oklch(1 0 0);
     --foreground: oklch(0.145 0 0);
     --card: oklch(1 0 0);
@@ -127,4 +130,38 @@
   html {
     @apply font-sans;
     }
+}
+
+/* Estilo para o Título (Fonte da Imagem) */
+.titulo-rede {
+  color: var(--cor-primaria-roxo);
+  font-family: sans-serif;
+  font-weight: bold;
+  font-size: 2.5rem;
+}
+
+/* Botão com Identidade Visual */
+.botao-primario {
+  background-color: var(--cor-primaria-roxo);
+  color: var(--cor-texto-claro);
+  padding: 10px 20px;
+  border: none;
+  border-radius: 5px;
+  cursor: pointer;
+  transition: background 0.3s ease;
+}
+
+/* Efeito Hover usando o Verde do Logo */
+.botao-primario:hover {
+  background-color: var(--cor-secundaria-verde);
+}
+
+/* Exemplo de Gradiente inspirado no Símbolo */
+.banner-gradiente {
+  background: linear-gradient(135deg, var(--cor-primaria-roxo) 0%, var(--cor-secundaria-verde) 100%);
+  height: 200px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: white;
 }
